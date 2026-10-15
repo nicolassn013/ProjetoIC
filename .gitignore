@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.vscode/
+.idea/
+*.log
+.~lock.*#
+
+# Arquivos meteorológicos brutos/tratados do Estudante 1 -- grandes (26MB e
+# 44MB) e regeneráveis a partir do FTP da MAWS55 + do script dele. Não fazem
+# sentido versionados aqui; o pipeline lê o tratado, mas ninguém mais
+# depende de tê-lo no git (o leituras.db já carrega o que precisa dele).
+dados/estudante1_meteorologia/brutos/dados_meteorologicos.xlsx
+dados/estudante1_meteorologia/brutos/dados_meteorologicos_tratados.xlsx
+dados/estudante1_meteorologia/brutos/analise_meteorologicos.xlsx
