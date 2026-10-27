@@ -25,6 +25,7 @@ Achados confirmados com este script (ver relatório Passo 4 para o detalhe):
 
 import os
 import re
+import sys
 import glob
 from datetime import datetime
 from functools import lru_cache
@@ -34,6 +35,9 @@ import pandas as pd
 from openpyxl import load_workbook
 
 PASTA_PROJETO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(PASTA_PROJETO, "app"))
+import catalogo_meteorologia as catalogo  # noqa: E402
+
 PASTA_DADOS = os.path.join(PASTA_PROJETO, "dados")
 PASTA_RELATORIOS = os.path.join(PASTA_DADOS, "brutos", "usina_powerstation")
 PASTA_SAIDA = os.path.join(PASTA_DADOS, "processados")
@@ -252,6 +256,37 @@ def carregar_meteorologia(data_relatorio):
     return df[colunas].sort_values("timestamp_meteorologia_original").reset_index(drop=True)
 
 
+def carregar_meteorologia_completa(data_relatorio):
+    """Todas as variáveis do catálogo (51 valores + 24 flags) do dia pedido,
+    prontas para meteorologia_15min. Os valores vêm da versão _tratado quando
+    ela existe e do dado bruto quando não existe (ver o catálogo). Devolve
+    DataFrame vazio, com as colunas certas, se o dia não estiver coberto."""
+    df = ler_meteorologia_completa()
+    necessarias = list(catalogo.mapa_valores_arquivo().values()) + \
+        list(catalogo.mapa_flags_arquivo().values()) + ["UTC -3", "lacuna_temporal"]
+    ausentes = [c for c in necessarias if c not in df.columns]
+    if ausentes:
+        raise ValueError(f"O arquivo meteorológico não tem as colunas esperadas: {ausentes}")
+
+    ts = pd.to_datetime(df["UTC -3"], errors="coerce")
+    inicio = pd.Timestamp(data_relatorio)
+    mascara = ts.notna() & (ts >= inicio) & (ts < inicio + pd.Timedelta(days=1))
+    dia = df.loc[mascara]
+
+    saida = pd.DataFrame({
+        "timestamp_15min": ts[mascara].dt.floor("15min"),
+        "timestamp_original": ts[mascara],
+        "lacuna_temporal": dia["lacuna_temporal"],
+    })
+    for coluna_banco, coluna_arquivo in catalogo.mapa_valores_arquivo().items():
+        saida[coluna_banco] = dia[coluna_arquivo]
+    for coluna_flag, coluna_arquivo in catalogo.mapa_flags_arquivo().items():
+        saida[coluna_flag] = dia[coluna_arquivo]
+
+    saida = saida[catalogo.colunas_meteorologia_15min()]
+    return saida.sort_values("timestamp_15min").reset_index(drop=True)
+
+
 def integrar_15min(df_eletrico, df_meteo):
     """Agrega o elétrico (5min) para 15min por média (mean) e só então
     cruza com a meteorologia, que já nasce em 15min. Cada timestamp_15min
@@ -317,6 +352,7 @@ def processar_dia(data_alvo_str):
 
     meteo = carregar_meteorologia(data_relatorio)
     integracao_15min = integrar_15min(eletrico, meteo)
+    meteorologia_completa = carregar_meteorologia_completa(data_relatorio)
 
     comparaveis = eletrico.dropna(subset=["potencia_fv_kw", "potencia_inversores_soma_kw"])
     correlacao = comparaveis["potencia_fv_kw"].corr(comparaveis["potencia_inversores_soma_kw"]) if len(comparaveis) > 1 else None
@@ -335,7 +371,8 @@ def processar_dia(data_alvo_str):
         "geracao_max_inv04_kw": round(inversores["INV04"].max(), 2) if inversores["INV04"].notna().any() else None,
     }
 
-    return {"eletrico_5min": eletrico, "integracao_15min": integracao_15min, "resumo": resumo}
+    return {"eletrico_5min": eletrico, "integracao_15min": integracao_15min,
+            "meteorologia_15min": meteorologia_completa, "resumo": resumo}
 
 
 def salvar_dia(resultado, data_alvo_str):
@@ -344,6 +381,7 @@ def salvar_dia(resultado, data_alvo_str):
     with pd.ExcelWriter(caminho_saida, engine="openpyxl") as writer:
         resultado["eletrico_5min"].to_excel(writer, sheet_name="eletrico_5min", index=False)
         resultado["integracao_15min"].to_excel(writer, sheet_name="integracao_15min", index=False)
+        resultado["meteorologia_15min"].to_excel(writer, sheet_name="meteorologia_15min", index=False)
         pd.DataFrame([resultado["resumo"]]).T.reset_index().rename(
             columns={"index": "indicador", 0: "valor"}
         ).to_excel(writer, sheet_name="resumo", index=False)
