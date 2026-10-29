@@ -15,3 +15,12 @@ venv/
 dados/estudante1_meteorologia/brutos/dados_meteorologicos.xlsx
 dados/estudante1_meteorologia/brutos/dados_meteorologicos_tratados.xlsx
 dados/estudante1_meteorologia/brutos/analise_meteorologicos.xlsx
+
+# Cópias de segurança automáticas feitas antes de migrações do banco
+dados/backups/
+
+# Segredos e dados da aquisição (NUNCA versionar)
+config.env
+*.env
+!config.exemplo.env
+dados/brutos/maws55/

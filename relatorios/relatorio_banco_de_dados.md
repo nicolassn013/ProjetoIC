@@ -36,3 +36,54 @@ Banco pronto e validado. Agora dá pra montar o Streamlit em cima do `leituras.d
 - gráfico de barras histórico 2020-2026 puxando de `historico_anual_inversores`/`historico_anual_usina`, com destaque visual pro buraco do INV03.
 
 Arquivos em anexo: `integra_usina_meteorologia.py` (corrigido), `carrega_banco.py`, e o `leituras.db` já populado.
+
+
+---
+
+## Atualização de 21/10/2026 — estrutura versão 2 (meteorologia completa)
+
+**Acrescentado**
+- Tabela `meteorologia_15min` (78 colunas: 51 valores, 24 flags, 3 de apoio) e a view `vw_leitura_completa`.
+- `app/catalogo_meteorologia.py` (56 variáveis), `app/migracoes.py` e `app/migracoes/001_base.sql`, `002_meteorologia_15min.sql`.
+- Funções em `consultas.py`: `salvar_meteorologia`, `meteorologia_15min_do_dia`, `leitura_completa_do_dia`, `cobertura_meteorologia`, `verificar_schema_meteorologia`.
+- Aba `meteorologia_15min` nos arquivos `integracao_usina_YYYYMMDD.xlsx` e `carregar_meteorologia_completa` no pipeline.
+- `testes/test_banco.py` (21 testes) e `relatorios/dicionario_meteorologia.md`.
+
+**Substituído**
+- `inicializar_schema`: antes tinha `CREATE TABLE` dentro do código; agora aplica as migrações.
+- `salvar_dia`: passa a devolver `{linhas_antes, linhas_depois}`; `carrega_banco.py` avisa quando um dia fica com menos linhas.
+- `dados/leituras.db`: agora na versão 2; os mesmos 2 dias de exemplo e 96 linhas de meteorologia completa de 22/09/2025.
+
+**Retirado**
+- Os `CREATE TABLE` de `consultas.py` (movidos, sem mudar, para `001_base.sql`).
+
+**Conferido** (cópia isolada, banco antigo migrado com backup): `leitura_15min` igual ao banco anterior (tolerância 1e-9), PR de 22/09/2025 = 0,831, 96 linhas de meteorologia que batem coluna a coluna com o xlsx tratado, 2 cargas seguidas sem duplicar, `integrity_check` ok. O dashboard **não** foi executado (Streamlit não instalado aqui).
+
+
+---
+
+## Atualização de 23/10/2026 — estrutura versão 4 (consolidação e aquisição)
+
+**Acrescentado**
+- Migração `003_meteorologia_valores_legados.sql`: as 5 variáveis antigas ganham coluna em `meteorologia_15min` (que passa a ter as 56) e a view `vw_leitura_completa` é recriada, preferindo o valor de `meteorologia_15min` e caindo para a cópia legada de `leitura_15min`.
+- Migração `004_ingestao_arquivos.sql`: diário dos arquivos baixados (nome, hash, status, linhas, erro).
+- `salvar_meteorologia(modo="mesclar")`, `ingestao_ja_feita`, `registrar_ingestao`, `ultimas_ingestoes` em `consultas.py`.
+- Módulo `pipeline/aquisicao/` (config, fontes FTP/pasta, leitor, tratamento, ingestão) e `pipeline/aquisicao_maws55.py`.
+- `config.exemplo.env`, `relatorios/aquisicao_maws55.md`, `relatorios/padroes_de_projeto.md`, `testes/test_aquisicao.py` (47 testes).
+
+**Substituído**
+- `leitura_15min_do_dia` e `cobertura_geral` passam a ler pela view (mesmas colunas e mesmos números de antes).
+- Catálogo: as 5 variáveis antigas passam a viver em `meteorologia_15min` (56 valores, 24 flags, 83 colunas).
+- `dados/leituras.db`: versão 4.
+
+**Retirado**
+- Nada. `001` e `002` não foram alteradas (conferido byte a byte com o que foi entregue ao Estudante 1).
+
+**Conferido** (cópia isolada, banco versão 2 migrado para 4 com backup)
+- `leitura_15min` e `leitura_15min_do_dia` iguais ao banco original (tolerância 1e-9); PR de 22/09/2025 = 0,831; `cobertura_geral` igual (96 de 192 com meteorologia).
+- Regras de tratamento da aquisição **idênticas** às do Estudante 1 nas 111.555 linhas do arquivo tratado (56 valores e 24 flags).
+- Um dia (96 linhas) reconstruído como 96 arquivos .txt sintéticos e ingerido do zero: banco **igual** ao do pipeline atual em todas as colunas (exceto `lacuna_temporal`, que fica vazia na aquisição).
+- 76 testes passando (3 só rodam com o arquivo tratado do Estudante 1 presente); `integrity_check` ok.
+- **Formato real do .txt confirmado (24/10/2026)** com 2 arquivos do FTP: sem cabeçalho, vírgulas, horário em UTC, 52 ou 56 valores por linha. Leitor reescrito para isso. Achado: no xlsx tratado do Estudante 1, as 3.653 linhas de 15/07 a 22/08/2022 têm nomes de colunas deslocados (detalhes em `aquisicao_maws55.md`, seção 4.2).
+
+**Não conferido:** formato real do .txt do FTP, o FTP real e o dashboard.

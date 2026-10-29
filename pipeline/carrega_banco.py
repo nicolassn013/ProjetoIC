@@ -46,6 +46,7 @@ def processar_dados_diarios(conn):
     arquivos = glob.glob(os.path.join(PASTA_PROCESSADOS, "integracao_usina_*.xlsx"))
 
     total = 0
+    total_meteo = 0
     for arq in sorted(arquivos):
         m = re.search(r"integracao_usina_(\d{8})\.xlsx", arq)
         if not m:
@@ -62,10 +63,25 @@ def processar_dados_diarios(conn):
 
         df_15min["timestamp_15min"] = pd.to_datetime(df_15min["timestamp_15min"])
 
-        consultas.salvar_dia(conn, data_iso, df_15min, df_resumo_pivot)
+        troca = consultas.salvar_dia(conn, data_iso, df_15min, df_resumo_pivot)
+        if troca["linhas_depois"] < troca["linhas_antes"]:
+            print(f"   [Aviso] {data_iso}: o dia tinha {troca['linhas_antes']} linhas e passou a ter "
+                  f"{troca['linhas_depois']} (carga incompleta substituiu dia completo?).")
         total += len(df_15min)
 
+        if "meteorologia_15min" in pd.ExcelFile(arq).sheet_names:
+            df_meteo = pd.read_excel(arq, sheet_name="meteorologia_15min")
+            if df_meteo.empty:
+                print(f"   [Aviso] {data_iso}: sem meteorologia completa neste dia (fora da cobertura).")
+            else:
+                resposta = consultas.salvar_meteorologia(conn, df_meteo)
+                for dia in resposta["dias_com_menos_linhas"]:
+                    c = resposta["dias"][dia]
+                    print(f"   [Aviso] meteorologia {dia}: {c['linhas_antes']} -> {c['linhas_depois']} linhas.")
+                total_meteo += len(df_meteo)
+
     print(f"   [OK] {total} registros de 15min inseridos no total.")
+    print(f"   [OK] {total_meteo} registros de meteorologia completa inseridos no total.")
 
 
 def validar(conn):
@@ -73,6 +89,9 @@ def validar(conn):
     cobertura = consultas.cobertura_geral(conn)
     for chave, valor in cobertura.items():
         print(f"   {chave}: {valor}")
+    diferencas = consultas.verificar_schema_meteorologia(conn)
+    if diferencas["faltando_no_banco"] or diferencas["sobrando_no_banco"]:
+        print(f"   [Aviso] meteorologia_15min diverge do catálogo: {diferencas}")
 
 
 if __name__ == "__main__":
@@ -81,7 +100,9 @@ if __name__ == "__main__":
     print("=" * 60)
 
     with banco.conectar_ou_criar() as conexao:
-        consultas.inicializar_schema(conexao)
+        aplicadas = consultas.inicializar_schema(conexao)
+        if aplicadas:
+            print(f"-> Migracoes aplicadas: {aplicadas} (copia de seguranca em dados/backups/ se o banco ja existia)")
         processar_historico_anual(conexao)
         processar_dados_diarios(conexao)
         validar(conexao)
