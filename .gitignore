@@ -24,3 +24,4 @@ config.env
 *.env
 !config.exemplo.env
 dados/brutos/maws55/
+dados/aquisicao.log*
